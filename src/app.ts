@@ -1,11 +1,39 @@
 import 'dotenv/config'
 import Fastify from 'fastify'
 import { z } from 'zod'
-import { ZodTypeProvider } from 'fastify-type-provider-zod'
+import {
+  ZodTypeProvider,
+  serializerCompiler,
+  validatorCompiler,
+} from 'fastify-type-provider-zod'
 import { env } from './config/env'
 import { runScanOrchestrator } from './services/scan_orchestrator'
 
-const fastify = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>()
+/** Logs legibles en dev: colores por nivel, hora y objetos bien separados ([pino-pretty](https://github.com/pinojs/pino-pretty)) */
+const devLoggerOptions = {
+  level: 'debug' as const,
+  transport: {
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      colorizeObjects: true,
+      levelFirst: true,
+      translateTime: 'SYS:HH:MM:ss',
+      ignore: 'pid,hostname',
+      singleLine: false,
+      errorLikeObjectKeys: ['err', 'error'],
+      errorProps: 'type,message,stack,code,statusCode',
+    },
+  },
+}
+
+const fastify = Fastify({
+  logger:
+    env.NODE_ENV === 'development' ? devLoggerOptions : { level: 'info' },
+}).withTypeProvider<ZodTypeProvider>()
+
+fastify.setValidatorCompiler(validatorCompiler)
+fastify.setSerializerCompiler(serializerCompiler)
 
 fastify.get(
   '/',
