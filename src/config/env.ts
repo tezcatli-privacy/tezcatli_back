@@ -5,6 +5,12 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3000),
   REDIS_URL: z.string().url().optional(),
+  /** TTL de sesión de scan (Issue 1.1 / 1.2) — por defecto 30 min */
+  SCAN_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
+  /** Timeout por proveedor en el orquestador (ms) */
+  PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** Si true, POST /api/scan exige Redis y sesión persistente (Issue 1.1) */
+  SCAN_REQUIRE_REDIS: z.coerce.boolean().default(true),
   NYM_ENABLED: z.coerce.boolean().default(false),
   NYM_BASE_URL: z.string().url().optional(),
   NYM_CLIENT_ID: z.string().default('tezcatli-backend'),
