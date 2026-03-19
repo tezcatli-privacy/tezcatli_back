@@ -1,4 +1,4 @@
-import crypto from 'node:crypto'
+import type { Redis } from 'ioredis'
 import {
   fetchArkhamAddressIntelligence,
   type ArkhamFinding,
@@ -11,15 +11,27 @@ import {
   fetchNeynarIdentity,
   type NeynarIdentity,
 } from './connectors/neynar.connector'
+import {
+  saveScanSession,
+  type ScanSessionRedisPayload,
+} from './scan_session_store'
+import { computePrivacyScore, type PrivacyScoreResult } from './privacy_score_engine'
+import { promiseWithTimeout } from '../utils/promise_timeout'
 
 type ScanStage = 'identity' | 'financial' | 'exchange' | 'score'
 type StageStatus = 'completed' | 'partial' | 'failed' | 'skipped'
 
-type ScanStageResult = {
+export type ScanStageResult = {
   stage: ScanStage
   status: StageStatus
   progress: number
   error?: string
+}
+
+export type ScanSessionContext = {
+  scanSessionId: string
+  walletRef: string
+  createdAt: string
 }
 
 export type ScanResult = {
@@ -27,6 +39,7 @@ export type ScanResult = {
   status: 'completed' | 'partial'
   progress: number
   stages: ScanStageResult[]
+  privacy: PrivacyScoreResult
   data: {
     arkham?: ArkhamFinding
     zerion?: ZerionExposure
@@ -34,17 +47,65 @@ export type ScanResult = {
   }
 }
 
+export type ScanOrchestratorDeps = {
+  redis?: Redis
+  sessionTtlSeconds: number
+  providerTimeoutMs: number
+}
+
 const getErrorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : 'Unknown error'
 
-export const runScanOrchestrator = async (address: string): Promise<ScanResult> => {
-  const scanSessionId = crypto.randomUUID()
+const nowIso = (): string => new Date().toISOString()
+
+export const runScanOrchestrator = async (
+  address: string,
+  session: ScanSessionContext,
+  deps: ScanOrchestratorDeps
+): Promise<ScanResult> => {
+  const { scanSessionId, walletRef, createdAt } = session
+  const { redis, sessionTtlSeconds, providerTimeoutMs } = deps
   const stages: ScanStageResult[] = []
 
+  let redisPayload: ScanSessionRedisPayload = {
+    scanSessionId,
+    walletRef,
+    createdAt,
+    status: 'running',
+    progress: 5,
+    stages: [],
+    updatedAt: nowIso(),
+  }
+
+  const persist = async (): Promise<void> => {
+    if (!redis) {
+      return
+    }
+    redisPayload = {
+      ...redisPayload,
+      updatedAt: nowIso(),
+    }
+    await saveScanSession(redis, scanSessionId, redisPayload, sessionTtlSeconds)
+  }
+
+  await persist()
+
   const [arkham, zerion, neynar] = await Promise.allSettled([
-    fetchArkhamAddressIntelligence(address),
-    fetchZerionExposure(address),
-    fetchNeynarIdentity(address),
+    promiseWithTimeout(
+      fetchArkhamAddressIntelligence(address),
+      providerTimeoutMs,
+      'arkham'
+    ),
+    promiseWithTimeout(
+      fetchZerionExposure(address),
+      providerTimeoutMs,
+      'zerion'
+    ),
+    promiseWithTimeout(
+      fetchNeynarIdentity(address),
+      providerTimeoutMs,
+      'neynar'
+    ),
   ])
 
   if (arkham.status === 'fulfilled' && neynar.status === 'fulfilled') {
@@ -57,11 +118,25 @@ export const runScanOrchestrator = async (address: string): Promise<ScanResult> 
       status: 'failed',
       progress: 20,
       error: [arkham, neynar]
-        .filter((entry) => entry.status === 'rejected')
+        .filter(
+          (entry): entry is PromiseRejectedResult => entry.status === 'rejected'
+        )
         .map((entry) => getErrorMessage(entry.reason))
         .join('; '),
     })
   }
+
+  redisPayload = {
+    ...redisPayload,
+    progress: 40,
+    stages: stages.map((s) => ({
+      stage: s.stage,
+      status: s.status,
+      progress: s.progress,
+      error: s.error,
+    })),
+  }
+  await persist()
 
   if (zerion.status === 'fulfilled') {
     stages.push({ stage: 'financial', status: 'completed', progress: 70 })
@@ -70,9 +145,24 @@ export const runScanOrchestrator = async (address: string): Promise<ScanResult> 
       stage: 'financial',
       status: 'failed',
       progress: 55,
-      error: getErrorMessage(zerion.reason),
+      error:
+        zerion.status === 'rejected'
+          ? getErrorMessage(zerion.reason)
+          : 'zerion: unknown error',
     })
   }
+
+  redisPayload = {
+    ...redisPayload,
+    progress: 70,
+    stages: stages.map((s) => ({
+      stage: s.stage,
+      status: s.status,
+      progress: s.progress,
+      error: s.error,
+    })),
+  }
+  await persist()
 
   stages.push({
     stage: 'exchange',
@@ -81,8 +171,30 @@ export const runScanOrchestrator = async (address: string): Promise<ScanResult> 
     error: 'Exchange connector pending',
   })
 
+  redisPayload = {
+    ...redisPayload,
+    progress: 85,
+    stages: stages.map((s) => ({
+      stage: s.stage,
+      status: s.status,
+      progress: s.progress,
+      error: s.error,
+    })),
+  }
+  await persist()
+
   const successfulStages = stages.filter((s) => s.status === 'completed').length
   const finalStatus = successfulStages >= 2 ? 'completed' : 'partial'
+
+  const arkhamData = arkham.status === 'fulfilled' ? arkham.value : undefined
+  const zerionData = zerion.status === 'fulfilled' ? zerion.value : undefined
+  const neynarData = neynar.status === 'fulfilled' ? neynar.value : undefined
+
+  const privacy = computePrivacyScore({
+    arkham: arkhamData,
+    zerion: zerionData,
+    neynar: neynarData,
+  })
 
   stages.push({
     stage: 'score',
@@ -90,15 +202,38 @@ export const runScanOrchestrator = async (address: string): Promise<ScanResult> 
     progress: 100,
   })
 
+  redisPayload = {
+    ...redisPayload,
+    status: finalStatus === 'completed' ? 'completed' : 'partial',
+    progress: 100,
+    stages: stages.map((s) => ({
+      stage: s.stage,
+      status: s.status,
+      progress: s.progress,
+      error: s.error,
+    })),
+    summary: {
+      arkhamOk: Boolean(arkhamData),
+      zerionOk: Boolean(zerionData),
+      neynarOk: Boolean(neynarData),
+      zerionTotalUsd: zerionData?.totalUsdVisible,
+      privacyScore: privacy.score,
+      privacyBand: privacy.band,
+      privacyConfidence: privacy.confidence,
+    },
+  }
+  await persist()
+
   return {
     scanSessionId,
     status: finalStatus,
     progress: 100,
     stages,
+    privacy,
     data: {
-      arkham: arkham.status === 'fulfilled' ? arkham.value : undefined,
-      zerion: zerion.status === 'fulfilled' ? zerion.value : undefined,
-      neynar: neynar.status === 'fulfilled' ? neynar.value : undefined,
+      arkham: arkhamData,
+      zerion: zerionData,
+      neynar: neynarData,
     },
   }
 }
