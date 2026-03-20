@@ -1,5 +1,6 @@
 import { env } from '../../config/env'
 import { nymFetch } from '../../plugins/nym_client'
+import { connectorFetchTimeoutMs } from './connector_timeout'
 
 export type NeynarIdentity = {
   source: 'neynar'
@@ -13,6 +14,48 @@ export type NeynarIdentity = {
 const replaceAddressTemplate = (template: string, address: string): string =>
   template.replace('{address}', encodeURIComponent(address))
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null
+
+const normalizeAddr = (a: string): string => a.trim().toLowerCase()
+
+/**
+ * Issue 1.5 — OpenAPI Neynar `BulkUsersByAddressResponse`: objeto cuyas propiedades
+ * son arrays de `User`, y/o clave `users` en algunas respuestas.
+ */
+const extractNeynarUsers = (payload: Record<string, unknown>): unknown[] => {
+  if (Array.isArray(payload.users)) {
+    return payload.users
+  }
+  const out: unknown[] = []
+  for (const v of Object.values(payload)) {
+    if (Array.isArray(v)) {
+      out.push(...v)
+    }
+  }
+  return out
+}
+
+const userMatchesWallet = (
+  user: Record<string, unknown>,
+  walletNorm: string
+): boolean => {
+  const custody =
+    typeof user.custody_address === 'string'
+      ? normalizeAddr(user.custody_address)
+      : ''
+  if (custody && custody === walletNorm) {
+    return true
+  }
+  const verifications = user.verifications
+  if (Array.isArray(verifications)) {
+    return verifications.some(
+      (v) => typeof v === 'string' && normalizeAddr(v) === walletNorm
+    )
+  }
+  return false
+}
+  
 export const fetchNeynarIdentity = async (
   address: string
 ): Promise<NeynarIdentity> => {
@@ -29,7 +72,7 @@ export const fetchNeynarIdentity = async (
       Accept: 'application/json',
       'x-api-key': env.NEYNAR_API_KEY,
     },
-    timeoutMs: 12_000,
+    timeoutMs: connectorFetchTimeoutMs(),
   })
 
   if (!response.ok) {
@@ -37,16 +80,25 @@ export const fetchNeynarIdentity = async (
   }
 
   const payload = (await response.json()) as Record<string, unknown>
-  const users = Array.isArray(payload.users) ? payload.users : []
-  const first = users[0] as Record<string, unknown> | undefined
+  const candidates = extractNeynarUsers(payload)
+  const walletNorm = normalizeAddr(address)
+
+  const first = candidates.find(
+    (u): u is Record<string, unknown> => isRecord(u) && userMatchesWallet(u, walletNorm)
+  )
+
+  /** Si la API ya filtró por address, usar el primer user válido */
+  const fallback =
+    first ??
+    candidates.find((u): u is Record<string, unknown> => isRecord(u) && u.object === 'user')
 
   return {
     source: 'neynar',
     address,
-    found: Boolean(first),
-    username: typeof first?.username === 'string' ? first.username : undefined,
+    found: Boolean(fallback),
+    username: typeof fallback?.username === 'string' ? fallback.username : undefined,
     displayName:
-      typeof first?.display_name === 'string' ? first.display_name : undefined,
+      typeof fallback?.display_name === 'string' ? fallback.display_name : undefined,
     raw: payload,
   }
 }

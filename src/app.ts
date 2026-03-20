@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifyRedis from '@fastify/redis'
 import type { Redis } from 'ioredis'
+import { createConnectedRedis } from './utils/redis_connect'
 import { z } from 'zod'
 import {
   ZodTypeProvider,
@@ -216,6 +217,8 @@ const registerRoutes = (): void => {
             ok: z.boolean(),
             services: z.object({
               redis: z.boolean(),
+              /** Issue 1.3 — Nym mix-fetch habilitado a nivel configuración */
+              nym: z.boolean(),
               arkham: z.boolean(),
               zerion: z.boolean(),
               neynar: z.boolean(),
@@ -229,6 +232,7 @@ const registerRoutes = (): void => {
         ok: true,
         services: {
           redis: Boolean(env.REDIS_URL),
+          nym: env.NYM_ENABLED,
           arkham: Boolean(env.ARKHAM_API_KEY),
           zerion: Boolean(env.ZERION_API_KEY),
           neynar: Boolean(env.NEYNAR_API_KEY),
@@ -241,7 +245,11 @@ const registerRoutes = (): void => {
 const start = async () => {
   try {
     if (env.REDIS_URL) {
-      await fastify.register(fastifyRedis, { url: env.REDIS_URL })
+      const redis = await createConnectedRedis(env.REDIS_URL)
+      await fastify.register(fastifyRedis, {
+        client: redis,
+        closeClient: true,
+      })
     }
 
     registerRoutes()

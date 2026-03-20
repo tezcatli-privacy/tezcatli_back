@@ -4,7 +4,8 @@ type NymRequestOptions = RequestInit & {
   timeoutMs?: number
 }
 
-const DEFAULT_TIMEOUT_MS = 15_000
+/** alineado con presupuesto global de proveedores */
+const defaultTimeoutMs = (): number => env.PROVIDER_TIMEOUT_MS
 
 const withTimeout = async (
   input: string | URL,
@@ -12,8 +13,11 @@ const withTimeout = async (
   fetchImpl: typeof fetch = fetch
 ): Promise<Response> => {
   const controller = new AbortController()
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  if (typeof (timer as ReturnType<typeof setTimeout>).unref === 'function') {
+    ;(timer as ReturnType<typeof setTimeout> & { unref: () => void }).unref()
+  }
 
   try {
     return await fetchImpl(input, {
@@ -25,6 +29,9 @@ const withTimeout = async (
   }
 }
 
+/**
+ * HTTP saliente unificado — (Nym + fallback)
+ */
 type NymMixFetchFn = (
   url: string,
   args: RequestInit,
@@ -70,7 +77,7 @@ export const nymFetch = async (
     return withTimeout(url, options)
   }
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs()
   const { timeoutMs: _timeoutMs, ...requestInit } = options
 
   try {
