@@ -22,6 +22,21 @@ import {
 /** Logs legibles en dev: colores por nivel, hora y objetos bien separados ([pino-pretty](https://github.com/pinojs/pino-pretty)) */
 const devLoggerOptions = {
   level: 'debug' as const,
+  // Issue 2.3 — evitar exposición accidental de PII/secrets en logs.
+  redact: {
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.body.wallet',
+      'req.body.address',
+      '*.apiKey',
+      '*.api_key',
+      '*.token',
+      '*.secret',
+      '*.password',
+    ],
+    remove: true,
+  },
   transport: {
     target: 'pino-pretty',
     options: {
@@ -39,7 +54,25 @@ const devLoggerOptions = {
 
 const fastify = Fastify({
   logger:
-    env.NODE_ENV === 'development' ? devLoggerOptions : { level: 'info' },
+    env.NODE_ENV === 'development'
+      ? devLoggerOptions
+      : {
+          level: 'info',
+          redact: {
+            paths: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'req.body.wallet',
+              'req.body.address',
+              '*.apiKey',
+              '*.api_key',
+              '*.token',
+              '*.secret',
+              '*.password',
+            ],
+            remove: true,
+          },
+        },
 }).withTypeProvider<ZodTypeProvider>()
 
 fastify.setValidatorCompiler(validatorCompiler)

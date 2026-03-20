@@ -46,6 +46,17 @@ const envSchema = z.object({
     z.string().optional()
   ),
   NYM_FORCE_TLS: envBoolean(true),
+  /** Issue 2.1 — retries/jitter en capa Nym */
+  NYM_RETRY_ATTEMPTS: z.coerce.number().int().min(1).max(6).default(3),
+  NYM_RETRY_BASE_MS: z.coerce.number().int().min(50).default(250),
+  NYM_RETRY_JITTER_MS: z.coerce.number().int().min(0).default(150),
+  /** Si false, cuando Nym falla no se hace fallback a fetch directo. */
+  NYM_ALLOW_DIRECT_FALLBACK: envBoolean(true),
+  /** Issue 2.2 — ruido k-anonymity */
+  NOISE_ENABLED: envBoolean(false),
+  NOISE_DECOYS_MIN: z.coerce.number().int().min(0).max(10).default(2),
+  NOISE_DECOYS_MAX: z.coerce.number().int().min(0).max(10).default(4),
+  NOISE_MAX_DECOYS_PER_PROVIDER: z.coerce.number().int().min(0).max(10).default(4),
   /** Intel API (véase intel.arkm.com); path típico incluye `/all` multichain */
   ARKHAM_API_BASE_URL: z.string().url().default('https://api.arkm.com'),
   ARKHAM_API_KEY: z.string().optional(),

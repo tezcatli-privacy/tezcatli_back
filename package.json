@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/app.js",
     "typecheck": "tsc --noEmit",
+    "privacy:check-fetch": "node scripts/check_no_direct_fetch.js",
     "test": "echo \"No tests configured yet\""
   },
   "keywords": [],

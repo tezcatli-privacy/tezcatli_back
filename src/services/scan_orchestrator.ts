@@ -18,6 +18,7 @@ import {
 import { computePrivacyScore, type PrivacyScoreResult } from './privacy_score_engine'
 import { promiseWithTimeout } from '../utils/promise_timeout'
 import { composeReport, type Report } from './report_composer'
+import { withNoiseQueries } from './noise_query_engine'
 
 type ScanStage = 'identity' | 'financial' | 'exchange' | 'score'
 type StageStatus = 'completed' | 'partial' | 'failed' | 'skipped'
@@ -94,17 +95,26 @@ export const runScanOrchestrator = async (
 
   const [arkham, zerion, neynar] = await Promise.allSettled([
     promiseWithTimeout(
-      fetchArkhamAddressIntelligence(address),
+      withNoiseQueries({
+        realAddress: address,
+        query: fetchArkhamAddressIntelligence,
+      }),
       providerTimeoutMs,
       'arkham'
     ),
     promiseWithTimeout(
-      fetchZerionExposure(address),
+      withNoiseQueries({
+        realAddress: address,
+        query: fetchZerionExposure,
+      }),
       providerTimeoutMs,
       'zerion'
     ),
     promiseWithTimeout(
-      fetchNeynarIdentity(address),
+      withNoiseQueries({
+        realAddress: address,
+        query: fetchNeynarIdentity,
+      }),
       providerTimeoutMs,
       'neynar'
     ),
