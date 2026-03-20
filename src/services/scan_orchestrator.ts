@@ -17,6 +17,7 @@ import {
 } from './scan_session_store'
 import { computePrivacyScore, type PrivacyScoreResult } from './privacy_score_engine'
 import { promiseWithTimeout } from '../utils/promise_timeout'
+import { composeReport, type Report } from './report_composer'
 
 type ScanStage = 'identity' | 'financial' | 'exchange' | 'score'
 type StageStatus = 'completed' | 'partial' | 'failed' | 'skipped'
@@ -40,6 +41,7 @@ export type ScanResult = {
   progress: number
   stages: ScanStageResult[]
   privacy: PrivacyScoreResult
+  report: Report
   data: {
     arkham?: ArkhamFinding
     zerion?: ZerionExposure
@@ -196,6 +198,13 @@ export const runScanOrchestrator = async (
     neynar: neynarData,
   })
 
+  const report = composeReport({
+    privacy,
+    arkham: arkhamData,
+    zerion: zerionData,
+    neynar: neynarData,
+  })
+
   stages.push({
     stage: 'score',
     status: finalStatus === 'completed' ? 'completed' : 'partial',
@@ -221,6 +230,7 @@ export const runScanOrchestrator = async (
       privacyBand: privacy.band,
       privacyConfidence: privacy.confidence,
     },
+    report,
   }
   await persist()
 
@@ -230,6 +240,7 @@ export const runScanOrchestrator = async (
     progress: 100,
     stages,
     privacy,
+    report,
     data: {
       arkham: arkhamData,
       zerion: zerionData,

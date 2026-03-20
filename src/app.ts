@@ -87,6 +87,8 @@ const scanStatusResponseSchema = z.object({
       privacyConfidence: z.number().optional(),
     })
     .optional(),
+  /** Report Composer (opcional al cliente). */
+  report: z.unknown().optional(),
 })
 
 const registerRoutes = (): void => {
@@ -144,6 +146,7 @@ const registerRoutes = (): void => {
               band: z.enum(['Low', 'Moderate', 'High', 'Critical']),
               confidence: z.number(),
             }),
+            report: z.unknown().optional(),
           }),
           503: z.object({ error: z.literal('redis_unavailable') }),
         },

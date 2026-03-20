@@ -1,9 +1,10 @@
 import type { Redis } from 'ioredis'
+import type { Report } from './report_composer'
 
 export const scanSessionKey = (scanSessionId: string): string =>
   `tezcatli:scan:${scanSessionId}`
 
-/** Referencia a wallet sin guardar texto plano (Issue 1.1) */
+/** Referencia a wallet sin guardar texto plano */
 export type ScanSessionRedisPayload = {
   scanSessionId: string
   walletRef: string
@@ -23,11 +24,16 @@ export type ScanSessionRedisPayload = {
     zerionOk: boolean
     neynarOk: boolean
     zerionTotalUsd?: number
-    /** Issue 1.6 — resultado compacto del motor de score */
+    /** resultado compacto del motor de score */
     privacyScore?: number
     privacyBand?: string
     privacyConfidence?: number
   }
+  /**
+   * Report listo para el frontend (sin campos `raw` ni direcciones).
+   * Se persiste para que un endpoint tipo `/api/scan/:id/report` lo pueda retornar.
+   */
+  report?: Report
 }
 
 export const saveScanSession = async (

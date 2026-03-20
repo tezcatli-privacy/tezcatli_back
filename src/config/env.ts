@@ -25,14 +25,14 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3000),
   REDIS_URL: optionalUrl,
-  /** TTL de sesión de scan (Issue 1.1 / 1.2) — por defecto 30 min */
+  /** TTL de sesión de scan — por defecto 30 min */
   SCAN_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
   /**
    * Timeout por proveedor en el orquestador (capa `promiseWithTimeout`).
    * Los conectores usan un valor ligeramente menor vía `connectorFetchTimeoutMs`.
    */
   PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
-  /** Si true, POST /api/scan exige Redis y sesión persistente (Issue 1.1) */
+  /** Si true, POST /api/scan exige Redis y sesión persistente */
   SCAN_REQUIRE_REDIS: envBoolean(true),
   /**
    * Salidas HTTP vía Nym mix-fetch cuando está habilitado y el paquete
@@ -46,7 +46,7 @@ const envSchema = z.object({
     z.string().optional()
   ),
   NYM_FORCE_TLS: envBoolean(true),
-  /** Issue 1.5 — Intel API (véase intel.arkm.com); path típico incluye `/all` multichain */
+  /** Intel API (véase intel.arkm.com); path típico incluye `/all` multichain */
   ARKHAM_API_BASE_URL: z.string().url().default('https://api.arkm.com'),
   ARKHAM_API_KEY: z.string().optional(),
   ARKHAM_INTELLIGENCE_PATH_TEMPLATE: z
