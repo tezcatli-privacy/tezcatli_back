@@ -12,6 +12,9 @@ import {
   type NeynarIdentity,
 } from './connectors/neynar.connector'
 import {
+  type WavyRiskScan,
+} from './connectors/wavy.connector'
+import {
   saveScanSession,
   type ScanSessionRedisPayload,
 } from './scan_session_store'
@@ -19,6 +22,12 @@ import { computePrivacyScore, type PrivacyScoreResult } from './privacy_score_en
 import { promiseWithTimeout } from '../utils/promise_timeout'
 import { composeReport, type Report } from './report_composer'
 import { withNoiseQueries } from './noise_query_engine'
+import {
+  alphaSupportedAssets,
+  nextActionsBeforeEligibility,
+  type AlphaNextAction,
+  type AlphaSupportedAsset,
+} from './alpha_policy'
 
 type ScanStage = 'identity' | 'financial' | 'exchange' | 'score'
 type StageStatus = 'completed' | 'partial' | 'failed' | 'skipped'
@@ -40,9 +49,12 @@ export type ScanResult = {
   scanSessionId: string
   status: 'completed' | 'partial'
   progress: number
+  currentStage?: string
   stages: ScanStageResult[]
   privacy: PrivacyScoreResult
   report: Report
+  supportedAssets: AlphaSupportedAsset[]
+  nextActions: AlphaNextAction[]
   data: {
     arkham?: ArkhamFinding
     zerion?: ZerionExposure
@@ -60,6 +72,10 @@ const getErrorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : 'Unknown error'
 
 const nowIso = (): string => new Date().toISOString()
+const currentStageFromStages = (stages: ScanStageResult[]): string | undefined => {
+  if (stages.length === 0) return undefined
+  return stages[stages.length - 1]?.stage
+}
 
 export const runScanOrchestrator = async (
   address: string,
@@ -141,6 +157,7 @@ export const runScanOrchestrator = async (
   redisPayload = {
     ...redisPayload,
     progress: 40,
+    currentStage: currentStageFromStages(stages),
     stages: stages.map((s) => ({
       stage: s.stage,
       status: s.status,
@@ -167,6 +184,7 @@ export const runScanOrchestrator = async (
   redisPayload = {
     ...redisPayload,
     progress: 70,
+    currentStage: currentStageFromStages(stages),
     stages: stages.map((s) => ({
       stage: s.stage,
       status: s.status,
@@ -179,13 +197,14 @@ export const runScanOrchestrator = async (
   stages.push({
     stage: 'exchange',
     status: 'skipped',
-    progress: 85,
+    progress: 78,
     error: 'Exchange connector pending',
   })
 
   redisPayload = {
     ...redisPayload,
-    progress: 85,
+    progress: 78,
+    currentStage: currentStageFromStages(stages),
     stages: stages.map((s) => ({
       stage: s.stage,
       status: s.status,
@@ -214,6 +233,8 @@ export const runScanOrchestrator = async (
     zerion: zerionData,
     neynar: neynarData,
   })
+  const supportedAssets = alphaSupportedAssets
+  const nextActions = nextActionsBeforeEligibility()
 
   stages.push({
     stage: 'score',
@@ -225,6 +246,7 @@ export const runScanOrchestrator = async (
     ...redisPayload,
     status: finalStatus === 'completed' ? 'completed' : 'partial',
     progress: 100,
+    currentStage: currentStageFromStages(stages),
     stages: stages.map((s) => ({
       stage: s.stage,
       status: s.status,
@@ -241,6 +263,8 @@ export const runScanOrchestrator = async (
       privacyConfidence: privacy.confidence,
     },
     report,
+    supportedAssets,
+    nextActions,
   }
   await persist()
 
@@ -248,9 +272,12 @@ export const runScanOrchestrator = async (
     scanSessionId,
     status: finalStatus,
     progress: 100,
+    currentStage: currentStageFromStages(stages),
     stages,
     privacy,
     report,
+    supportedAssets,
+    nextActions,
     data: {
       arkham: arkhamData,
       zerion: zerionData,

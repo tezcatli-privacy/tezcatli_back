@@ -1,4 +1,5 @@
 import type { Redis } from 'ioredis'
+import type { AlphaNextAction, AlphaRiskAssessment, AlphaSupportedAsset } from './alpha_policy'
 import type { Report } from './report_composer'
 
 export const scanSessionKey = (scanSessionId: string): string =>
@@ -11,6 +12,7 @@ export type ScanSessionRedisPayload = {
   createdAt: string
   status: 'pending' | 'running' | 'completed' | 'partial' | 'failed'
   progress: number
+  currentStage?: string
   stages: Array<{
     stage: string
     status: string
@@ -23,17 +25,24 @@ export type ScanSessionRedisPayload = {
     arkhamOk: boolean
     zerionOk: boolean
     neynarOk: boolean
+    wavyOk?: boolean
     zerionTotalUsd?: number
     /** resultado compacto del motor de score */
     privacyScore?: number
     privacyBand?: string
     privacyConfidence?: number
+    riskScore?: number
+    riskLevel?: string
+    migrationEligible?: boolean
   }
   /**
    * Report listo para el frontend (sin campos `raw` ni direcciones).
    * Se persiste para que un endpoint tipo `/api/scan/:id/report` lo pueda retornar.
    */
   report?: Report
+  risk?: AlphaRiskAssessment
+  supportedAssets?: AlphaSupportedAsset[]
+  nextActions?: AlphaNextAction[]
 }
 
 export const saveScanSession = async (
